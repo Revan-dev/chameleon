@@ -124,6 +124,16 @@ def _row(elements, sw, sh, tw, th):
         hero_element["fit"] = "cover"
         hero_element["z_index"] = lower_z + 1
 
+        legal = [
+            unit for unit in texts
+            if any("legal" in str(member.get("id", "")).lower()
+                   for member in unit["members"])
+        ]
+        texts = [unit for unit in texts if unit not in legal]
+        footer_h = min(20.0, th * 0.24) if legal and th <= 160 else 0.0
+        footer_gap = max(1.0, th * 0.015) if footer_h else 0.0
+        overlay_h = max(1.0, inner_h - footer_h - footer_gap)
+
         if texts:
             heading = max(
                 texts,
@@ -145,8 +155,9 @@ def _row(elements, sw, sh, tw, th):
             overlay_x = margin
             overlay_w = max(1.0, panel_w - 2 * margin)
             overlay_gap = max(2.0, inner_h * 0.04)
-            heading_h = max(1.0, (inner_h - overlay_gap) * 0.55)
-            paragraph_h = max(1.0, inner_h - overlay_gap - heading_h)
+            heading_share = 0.52 if th <= 160 else 0.55
+            heading_h = max(1.0, (overlay_h - overlay_gap) * heading_share)
+            paragraph_h = max(1.0, overlay_h - overlay_gap - heading_h)
             _place_unit(
                 heading, overlay_x, margin, overlay_w, heading_h
             )
@@ -154,6 +165,10 @@ def _row(elements, sw, sh, tw, th):
                 member["z_index"] = max(
                     member.get("z_index", 0), hero_element["z_index"] + 1
                 )
+                if th <= 160:
+                    member["font_size"] = min(
+                        float(member.get("font_size", MIN_FONT)), 9.0
+                    )
             if paragraph is not None:
                 _place_unit(
                     paragraph,
@@ -166,23 +181,45 @@ def _row(elements, sw, sh, tw, th):
                     member["z_index"] = max(
                         member.get("z_index", 0), hero_element["z_index"] + 1
                     )
+                    if th <= 160:
+                        member["font_size"] = min(
+                            float(member.get("font_size", MIN_FONT)), 8.0
+                        )
 
         if th <= 160:
             compact_units = sorted(
                 logos + others + texts, key=lambda unit: (unit["y"], unit["x"])
             )
-            if not compact_units:
-                return
-            columns = min(3, len(compact_units))
-            rows = (len(compact_units) + columns - 1) // columns
             grid_margin = max(2.0, th * 0.02)
             grid_gap = max(1.0, th * 0.015)
             grid_x = panel_w + grid_margin
             grid_y = grid_margin
             grid_w = max(1.0, tw - grid_x - grid_margin)
-            grid_h = max(1.0, th - 2 * grid_margin)
+            grid_h = max(
+                1.0, th - 2 * grid_margin - footer_h - footer_gap
+            )
+            cta_units = [
+                unit for unit in compact_units
+                if any(
+                    "cta" in str(member.get("id", "")).lower()
+                    or "cta" in str(member.get("group_id", "")).lower()
+                    for member in unit["members"]
+                )
+            ]
+            compact_units = [
+                unit for unit in compact_units if unit not in cta_units
+            ]
+            columns = min(3, max(1, len(compact_units)))
+            regular_rows = (
+                (len(compact_units) + columns - 1) // columns
+                if compact_units else 0
+            )
+            rows = regular_rows + len(cta_units)
             cell_w = (grid_w - grid_gap * (columns - 1)) / columns
-            cell_h = (grid_h - grid_gap * (rows - 1)) / rows
+            cell_h = (
+                (grid_h - grid_gap * (rows - 1)) / rows
+                if rows else grid_h
+            )
             for index, unit in enumerate(compact_units):
                 column, row = index % columns, index // columns
                 _place_compact_unit(
@@ -192,6 +229,28 @@ def _row(elements, sw, sh, tw, th):
                     cell_w,
                     cell_h,
                 )
+            for index, unit in enumerate(cta_units):
+                row = regular_rows + index
+                _place_compact_unit(
+                    unit,
+                    grid_x,
+                    grid_y + row * (cell_h + grid_gap),
+                    grid_w,
+                    cell_h,
+                )
+            for unit in legal:
+                _place_compact_unit(
+                    unit,
+                    margin,
+                    th - margin - footer_h,
+                    tw - 2 * margin,
+                    footer_h,
+                )
+                for member in unit["members"]:
+                    if member["type"] == "text":
+                        member["font_size"] = min(
+                            float(member.get("font_size", 11.0)), 11.0
+                        )
             return
 
         content_x = panel_w + margin
@@ -238,14 +297,16 @@ def _row(elements, sw, sh, tw, th):
 
 def _place_compact_unit(unit, x, y, w, h):
     for member in unit["members"]:
+        if float(member.get("rotation", 0)):
+            member["rotation"] = 0
         if member["type"] == "text":
             member["x"] = x + 2.0
             member["y"] = y
             member["width"] = max(1.0, w - 4.0)
             member["height"] = h
             member["font_size"] = max(
-                MIN_FONT,
-                min(float(member.get("font_size", MIN_FONT)), h / 2.4),
+                8.0,
+                min(float(member.get("font_size", MIN_FONT)), 9.0, h / 1.9),
             )
         else:
             if member["type"] == "image":
