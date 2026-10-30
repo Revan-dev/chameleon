@@ -1,99 +1,114 @@
-# CHAMELEON — starter repo
+# Project Chameleon
 
-This is the scaffolding for your engine. It handles input loading, output
-writing, rendering, and Docker packaging — so the only file you need to
-edit is **`engine/resize.py`**.
+This repository contains a design-resizing engine for the Adobe University
+Hackathon Project Chameleon challenge. It reads design-task JSON files from
+`input/`, adapts each design to its target canvas, and writes resized JSON and
+PNG previews to `output/`.
 
-```
-input:  a task JSON (source design + target canvas)
-              |
-              v
-        engine/resize.py   <-- YOU IMPLEMENT THIS
-              |
-              v
-output: <task>_output.json  (schema-valid resized design)
-        <task>_output.png   (rendered preview)
-```
+## What the solution does
 
-Both the JSON and the PNG are what get evaluated — see `RULES.md`.
+The resizing logic is in `engine/resize.py`. It uses deterministic,
+rule-based layout decisions; it does not call an AI service or require model
+weights. Similar aspect ratios retain proportional sizing, while more
+extreme layouts reflow elements. Wide layouts use an image-led panel with
+overlaid copy; short banners use a compact layout.
 
-## Repo layout
+The engine preserves the input elements and their content. It does not
+generate or replace image pixels.
 
-```
-engine/
-  resize.py        <- implement your approach here
-  main.py           <- orchestrator (input -> resize() -> output). Don't need to edit this.
-renderer/           <- the real renderer (transformer-convertor + cr-renderer), already vendored
-brand_kit/
-  assets/           <- image files referenced by asset_id in the sample designs
-  fonts/            <- font files matching the schema's font_family values
-input/               <- drop task JSON files here for local testing (3 samples included)
-output/              <- results land here
-chameleon_design_schema_v0.9.json   <- full field-by-field spec for the design format
-Dockerfile
-RULES.md
-```
+## Requirements
 
-## Quick start (no Docker needed for iterating on `resize()`)
+- Python 3.11 (the version used by the supplied Dockerfile)
+- Dependencies listed in `requirements.txt`:
+  - Pillow
+  - `cr-renderer`, installed from the repository URL in the requirements file
+- No AI model, API key, or model weights are required by this solution.
 
-```bash
-pip install -r requirements.txt
+Installing `cr-renderer` from its Git repository requires Git and network
+access during dependency installation. The challenge container is intended
+to run offline after its image is built.
+
+## Run locally on Windows
+
+From the repository root in PowerShell:
+
+```powershell
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 python -m engine.main
 ```
 
-This processes every `*.json` file in `input/` (the 3 sample designs are
-already there — one per difficulty level) and writes an `_output.json` and
-`_output.png` for each into `output/`.
+The command processes every `*.json` file in `input/` and writes matching
+`*_output.json` and `*_output.png` files to `output/`. The repository includes
+one sample task for each challenge level. The output JSON is the resized
+design; the PNG is a visual preview.
 
-The included baseline is a **uniform stretch** — deliberately the wrong
-approach (see the main brief: "a naive program stretches the picture; a
-good one moves the furniture"). It's there so the pipeline runs on day
-one. Run it once, look at `output/*_output.png`, and you'll see exactly
-why it's not good enough — that's the point. Replace the body of
-`resize()` in `engine/resize.py`, not just its constants.
+To try a different target size, copy a sample task JSON, change its
+`target_canvas.width` and `target_canvas.height`, and place the task in
+`input/` before running the command again. Do not overwrite the supplied
+samples if you want to keep the original test cases.
 
-## What the self-check does (and doesn't do)
+## Run with Docker
 
-`main.py` runs a quick structural check after every task — same element
-`id`s as the source, required fields present, nothing off-canvas. **This
-is not the official scorer.** It exists to catch obvious mistakes before
-you waste a submission on them. See `RULES.md` for what's actually
-checked and graded.
+Build the image from the repository root:
 
-A self-check warning does not fail the run — your JSON and PNG are still
-written either way. Read the warning; decide whether it's a real problem
-or, like the Level 2 sample's intentionally corner-bleeding decorative
-circle, an expected one.
-
-## The renderer
-
-`main.py` calls `renderer/converter/convert.py`'s `render_design_to_png()`
-(a vendored copy of `transformer-convertor`, wrapping `cr-renderer`) to
-produce each task's PNG — already wired in, no setup needed. It reads
-fonts/assets from `brand_kit/` and writes a real rendered preview, not a
-placeholder. If you ever see plain labeled boxes instead of real text and
-images in `output/*.png`, that means the import in `main.py` failed (e.g.
-`cr-renderer` didn't install — check `requirements.txt` installed cleanly)
-and it silently fell back to the box-and-label placeholder; don't judge
-your layout quality by that fallback.
-
-## Docker (how you'll actually be run)
-
-```bash
+```powershell
 docker build --platform linux/amd64 -t my-chameleon-engine .
-docker run --rm --network none \
-  -v $(pwd)/input:/app/input \
-  -v $(pwd)/output:/app/output \
+```
+
+Run the engine with the input and output folders mounted:
+
+```powershell
+$repo = (Get-Location).Path
+docker run --rm --network none `
+  --mount "type=bind,source=$repo\input,target=/app/input" `
+  --mount "type=bind,source=$repo\output,target=/app/output" `
   my-chameleon-engine
 ```
 
-`--network none` matches how stage-one scoring runs: everything your
-engine needs must be installed at **build** time (add it to
-`requirements.txt`), not fetched at run time. If you're using a locally
-hosted model, bake its weights into the image during the build step.
+The `--network none` option matches the challenge's offline runtime
+expectation. Dependencies and any required model files must be included in
+the image at build time; this solution has no model files.
 
-## See also
+## Preview and validation
 
-- `chameleon_design_schema_v0.9.json` — full input/output field spec
-- `RULES.md` — what's checked, what's graded, and what disqualifies a submission
-- FAQ — for anything not covered above
+Review the generated PNGs at their actual canvas dimensions, especially
+small banners where text may be difficult to read. The engine's self-check
+reports structural issues such as missing IDs, required fields, or
+off-canvas elements. A passing self-check does not guarantee visual quality
+or an official challenge score.
+
+The renderer uses the supplied assets in `brand_kit/assets/` and fonts in
+`brand_kit/fonts/`. If a preview shows labeled placeholder boxes rather than
+the actual design, verify that the renderer dependencies installed
+successfully. Do not evaluate layout quality from a placeholder preview.
+
+## AI and challenge-rule notes
+
+The supplied `RULES.md` does not state a blanket prohibition on using AI for
+layout decisions. It does say that:
+
+- If a solution relies on a fine-tuned or adapted model, its weights must be
+  publicly accessible so the solution can be independently reproduced.
+- The engine must work offline at runtime; dependencies and model weights
+  cannot be downloaded or accessed through an API during scoring.
+- Generating, redrawing, or replacing image pixels is disqualifying.
+- For stage-one scoring, preserve the original text and font family; changing
+  font size to help text fit is allowed.
+
+These are notes based on the rules included in this repository. Check the
+latest official challenge materials for any additional requirements or
+clarifications.
+
+## Project files
+
+- `engine/resize.py` — resizing and reflow logic
+- `engine/main.py` — task loading, self-checking, rendering, and output
+- `input/` — sample task JSON files
+- `output/` — generated JSON and PNG previews
+- `renderer/` — design-to-renderer conversion code
+- `brand_kit/` — supplied image assets and fonts
+- `chameleon_design_schema_v0.9.json` — design JSON schema
+- `RULES.md` and `FAQ.md` — challenge rules and clarifications
